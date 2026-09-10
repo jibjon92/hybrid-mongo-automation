@@ -1,0 +1,107 @@
+---
+- name: Deploy and Configure MongoDB Cluster Nodes
+  hosts: mongo_nodes
+  become: true
+  tasks:
+    - name: Disable Swap for MongoDB Performance
+      ansible.builtin.command: swapoff -a
+
+    - name: Permantenly remove Swap from /etc/fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    - name: Configure MongoDB 7.0 repository
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/mongodb-org-7.0.repo
+        content: |
+          [mongodb-org-7.0]
+          name=MongoDB Repository
+          baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/7.0/x86_64/
+          gpgcheck=true
+          enabled=true
+          gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
+        mode: '0644'
+
+    - name: Install MongoDB Packages
+      ansible.builtin.dnf:
+        name: mongodb-org
+        state: present
+        enablerepo: "mongodb-org-7.0"
+        disablerepo: "*"
+
+
+    - name: Deploy Custom mongod.conf
+      ansible.builtin.copy:
+        dest: /etc/mongod.conf
+        content: |
+          storage:
+            dbPath: /var/lib/mongo
+          systemLog:
+            destination: file
+            logAppend: true
+            path: /var/log/mongodb/mongod.log
+          net:
+            port: 27017
+            bindIp: 0.0.0.0
+          replication:
+            replSetName: "rs0"
+        mode: '0644'
+
+    - name: Install python3-firewall dependency
+      ansible.builtin.dnf:
+        name: python3-firewall
+        state: present
+        disablerepo: "*"
+        enablerepo: "mongodb-org-7.0,baseos,appstream" # Adjust base repos if needed
+      ignore_errors: true
+
+    - name: Allow MongoDB Port in Firewalld (Local Nodes)
+      ansible.posix.firewalld:
+        port: 27017/tcp
+        permanent: true
+        immediate: true
+        state: enabled
+      ignore_errors: true
+
+
+
+    - name: Start and Enable the MongoDB service
+      ansible.builtin.service:
+        name: mongod
+        state: restarted
+        enabled: true
+
+
+- name: Initialize Hybrid MongoDB Replica Set
+  hosts: primary_node
+  become: true
+  tasks:
+    - name: Wait for MongoDB ports to be reachable
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 27017
+        timeout: 30
+      loop: "{{ groups['mongo_nodes'] }}"
+
+
+    - name: Check Replica Set Intialization Status
+      ansible.builtin.command: mongosh --quiet --eval "rs.status().ok"
+      register: rs_status
+      failed_when: false
+      changed_when: false
+
+
+    - name: Initaite Replica Set
+      ansible.builtin.command: >
+        mongosh --eval 'rs.initiate({
+          _id: "rs0",
+          members: [
+            { _id: 0, host: "192.168.211.129:27017" },
+            { _id: 1, host: "192.168.211.130:27017" },
+            { _id: 2, host: "54.216.168.131:27017" }
+          ]
+        })'
+      when: rs_status.stdout != "1"
+

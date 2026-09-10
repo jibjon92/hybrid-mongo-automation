@@ -1,0 +1,75 @@
+---
+- name: Deploy MongoDB S3 Automated Backup Systemd Timer
+  hosts: mongo1
+  become: true
+  vars:
+    S3_BUCKET_NAME: "hybrid-mongo-backups-project"
+    AWS_REGION: "eu-west-1"
+    AWS_ACCESS_KEY_ID: "{{ vault_aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ vault_aws_secret_access_key }}"
+
+  tasks:
+    - name: Install database tools and python-pip-packages
+      ansible.builtin.dnf:
+        name:
+          - mongodb-database-tools
+          - python3-pip
+        state: present
+        disablerepo: "EX294_AppStream"
+
+    - name: Install boto3 Python Library
+      ansible.builtin.pip:
+        name: boto3
+        state: present
+
+    - name: Deploy backup script to /usr/local/bin
+      ansible.builtin.copy:
+        src: backup_to_s3.py
+        dest: /usr/local/bin/backup_to_s3.py
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create systemd backup service unit file
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/mongo-backup.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=MongoDB S3 Backup Service
+          After=network.target
+
+          [Service]
+          Type=oneshot
+          User=root
+          EnvironmentFile=/etc/mongo-backup.env
+          ExecStart=/usr/bin/python3 /usr/local/bin/backup_to_s3.py
+          StandardOutput=journal
+          StandardError=journal
+
+
+    - name: Create systemd backup timer unit file
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/mongo-backup.timer
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Run Mongo Backup Daily at 10 AM
+
+          [Timer]
+          OnCalendar=*-*-* 10:00:00
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start systemd backup timer
+      ansible.builtin.systemd_service:
+        name: mongo-backup.timer
+        state: started
+        enabled: true
+        daemon_reload: true

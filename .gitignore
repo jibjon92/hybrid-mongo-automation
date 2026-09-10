@@ -1,0 +1,15 @@
+#Ansible & Security Secrets
+.vault_pass
+*.key
+*.pem
+vars/vault_pass.txt
+
+#Temporary Backup & Restore Archive
+*.gz
+*.tar
+*.dump
+/tmp/
+__pycache__/
+.venv/
+.vscode/
+.DS_Store
