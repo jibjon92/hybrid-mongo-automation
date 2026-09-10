@@ -30,7 +30,8 @@ An automated, production-grade hybrid-cloud disaster recovery (DR) and backup pi
 The environment consists of a 3-node MongoDB Replica Set (`rs0`) deployed across an on-premises local network and AWS Cloud to ensure high availability and geo-redundancy.
 
 
-+----------------------------------+-----------------------------------------------+
+```text
+                        +----------------------------------+
                         |       ANSIBLE CONTROL NODE       |
                         |  - Playbooks & Encrypted Vault   |
                         |  - Manages Deployment via SSH    |
@@ -54,9 +55,13 @@ The environment consists of a 3-node MongoDB Replica Set (`rs0`) deployed across
 |  - Role: Secondary/Tie-breaker        |   |  - Offsite Backup Bucket              |
 |  - Geo-Redundant Node                 |   |  - Encrypted Storage                  |
 +---------------------------------------+   +---------------------------------------+
+```
 
 
 ### Cluster Specifications
+
+| Host / Node Name | IP Address / Location | Mongo Role | Deployment Function | OS / Specs |
+| :--- | :--- | :--- | :--- | :--- |
 | **Control Node** | Local LAN | N/A | Ansible Orchestration & IaC Master | RHEL 9 / 2 vCPU, 4GB |
 | **Primary Node** | `192.168.211.130` | `PRIMARY` | Active Application Read/Write Target | RHEL 9 / 2 vCPU, 4GB |
 | **mongo1** | `192.168.211.129` | `SECONDARY` | Backup Executor (Runs systemd & S3 scripts) | RHEL 9 / 2 vCPU, 4GB |
@@ -67,9 +72,10 @@ The environment consists of a 3-node MongoDB Replica Set (`rs0`) deployed across
 
 ## 📁 Repository Structure
 
+```text
 hybrid-mongo-automation/
-├── deploy_backup.yml         # Master Ansible orchestration playbook
-├── deploy_backup.yml         # Targeted Playbook for backup & DR Pipeline
+├── site.yml                  # Master Ansible orchestration playbook
+├── deploy_backup.yml         # Targeted playbook for backup & DR pipeline
 ├── backup_to_s3.py           # Automated backup script (executes mongodump & S3 upload)
 ├── restore_from_s3.py        # Disaster recovery restore script (S3 download & mongorestore)
 ├── vars/
@@ -78,7 +84,7 @@ hybrid-mongo-automation/
 ├── README.md                 # Production architecture documentation and runbooks
 ├── mongo-backup.service      # Systemd service unit configuration
 └── mongo-backup.timer        # Systemd timer unit configuration
-
+```
 
 ---
 
