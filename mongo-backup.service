@@ -1,0 +1,11 @@
+[Unit]
+Description=MongoDB S3 Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+USer=root
+EnvironmentFile=/etc/mongo-backup.env
+ExecStart=/usr/bin/python3 /usr/local/bin/backup_to_s3.py
+StandartOutput=journal
+StandardError=journal
