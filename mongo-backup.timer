@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Mongo Backup Daily at 10 AM
+
+[Timer]
+OnCalendar=*-*-* 10:00:00
+Persistent=true
+
+[Install]
+WantedBy=Install
