@@ -122,87 +122,77 @@ The AWS IAM user or execution role requires the following minimum policy for S3 
 
 🚀 
 Step 1: Setup Vault Credentials
-
-    On the Ansible Control Node inside ~/hybrid-mongo-automation:
-    Bash
-
-    ansible-vault create vars/vault.yml
-
-    Define the following variables inside the encrypted editor:
-    YAML
-
+1. On the Ansible Control Node inside ~/hybrid-mongo-automation:
+````
+ansible-vault create vars/vault.yml
+````
+2. Define the following variables inside the encrypted editor:
+````
     vault_aws_access_key_id: "AKIAYOURACTUALAWSKEY"
     vault_aws_secret_access_key: "YourActualSecretAccessKeyString"
-
-    Configure your vault password file for automated execution:
-    Bash
-
-    echo "YourVaultPassword" > ~/.vault_pass
-    chmod 600 ~/.vault_pass
-
+````
+3. Configure your vault password file for automated execution:
+````
+ echo "YourVaultPassword" > ~/.vault_pass
+ chmod 600 ~/.vault_pass
+````
 Step 2: Execute Ansible Deployment Playbook
 
-Run the Ansible playbook targeting mongo1 to deploy dependencies, scripts, and systemd timers:
-Bash
-
+1. Run the Ansible playbook targeting mongo1 to deploy dependencies, scripts, and systemd timers:
+````
 ansible-playbook deploy_backup.yml --vault-password-file ~/.vault_pass
-
+````
 📖 Operational Runbooks
-Runbook 1: Backup Operations & Verification
-Trigger a Manual Backup
+### Runbook 1: Backup Operations & Verification
+### Trigger a Manual Backup
 
 To execute an immediate backup on demand without waiting for the scheduled 02:00 AM window:
-Bash
-
+````
 ssh ec2-user@192.168.211.129
 sudo systemctl start mongo-backup.service
-
-Monitor Backup Systemd Logs
-
-Inspect real-time service logs via journalctl:
-Bash
-
+````
+### Monitor Backup Systemd Logs: Inspect real-time service logs via journalctl:
+````
 sudo journalctl -u mongo-backup.service -f --no-pager
+````
 
-Verify Systemd Timer Status
-Bash
-
+#### Verify Systemd Timer Status
+````
 systemctl status mongo-backup.timer
 systemctl list-timers mongo-backup.timer
+````
+----
+### Runbook 2: Disaster Recovery & Restore Procedure
 
-Runbook 2: Disaster Recovery & Restore Procedure
+⚠️ CRITICAL REQUIREMENT: mongorestore writes MUST always target the Primary node (192.168.211.130). Executing restore commands against a Secondary node (127.0.0.1 on mongo1) will result in a NotWritablePrimary error.
 
-    ⚠️ CRITICAL REQUIREMENT: mongorestore writes MUST always target the Primary node (192.168.211.130). Executing restore commands against a Secondary node (127.0.0.1 on mongo1) will result in a NotWritablePrimary error.
-
-Step 1: Prepare Restore Script on Execution Host
+#### Step 1: Prepare Restore Script on Execution Host
 
 Ensure restore_from_s3.py exists on mongo1 (or Control Node):
-Bash
 
+````
 ssh ec2-user@192.168.211.129
 chmod +x ~/restore_from_s3.py
-
-Step 2: Execute Disaster Recovery Restore
+````
+#### Step 2: Execute Disaster Recovery Restore
 
 Set the S3 bucket variables and pass MONGO_URI pointing directly to the Primary IP (192.168.211.130):
-Bash
+````
 
 export S3_BUCKET_NAME="your-mongo-backup-bucket-name"
 export AWS_REGION="eu-west-1"
 export MONGO_URI="mongodb://192.168.211.130:27017"
-
 python3 ~/restore_from_s3.py
+````
 
-Step 3: Validate Restored Data on Primary Node
+#### Step 3: Validate Restored Data on Primary Node
 
 Query the Primary node directly to verify collection records and document integrity:
-Bash
-
+````
 mongosh "mongodb://192.168.211.130:27017/portfolio" --eval "db.demo.find()"
-
+````
 Expected Verification Output:
-JavaScript
-
+````
 [
   {
     _id: ObjectId("66e01a2b8f3c4a123456789a"),
@@ -211,44 +201,39 @@ JavaScript
     timestamp: ISODate("2026-09-10T10:00:00.000Z")
   }
 ]
+````
 
-Runbook 3: Security Hardening & Credential Rotation
+----
+#### Runbook 3: Security Hardening & Credential Rotation
 
-    Edit the encrypted vault file on the Control Node:
-    Bash
-
+1. Edit the encrypted vault file on the Control Node:
+````
     ansible-vault edit vars/vault.yml --vault-password-file ~/.vault_pass
+````
+2. Update vault_aws_access_key_id and vault_aws_secret_access_key.
 
-    Update vault_aws_access_key_id and vault_aws_secret_access_key.
+3. Redeploy the configuration to update systemd service environment variables:
+````
+ansible-playbook deploy_backup.yml --vault-password-file ~/.vault_pass
+````
 
-    Redeploy the configuration to update systemd service environment variables:
-    Bash
-
-    ansible-playbook deploy_backup.yml --vault-password-file ~/.vault_pass
-
+----
 🧪 Validation & Test Results
+1. Automated Scheduled Backup: Systemd timer activated mongo-backup.service at scheduled 02:00 AM. Compressed .gz archives successfully landed in S3 under backups/.
+2. Secondary Node S3 Stream: Confirmed that mongodump ran against local secondary instance (127.0.0.1:27017 on mongo1) without affecting write throughput on Primary 192.168.211.130.
+3.  Primary Recovery Testing: Disastrous data corruption was simulated, followed by execution of restore_from_s3.py. The script identified the newest snapshot, fetched it from S3, and performed a full --drop restore to 192.168.211.130. Full data consistency was validated via mongosh.
 
-    Automated Scheduled Backup: Systemd timer activated mongo-backup.service at scheduled 02:00 AM. Compressed .gz archives successfully landed in S3 under backups/.
-
-    Secondary Node S3 Stream: Confirmed that mongodump ran against local secondary instance (127.0.0.1:27017 on mongo1) without affecting write throughput on Primary 192.168.211.130.
-
-    Primary Recovery Testing: Disastrous data corruption was simulated, followed by execution of restore_from_s3.py. The script identified the newest snapshot, fetched it from S3, and performed a full --drop restore to 192.168.211.130. Full data consistency was validated via mongosh.
+----
 
 ❓ Troubleshooting & Edge Cases
 1. NotWritablePrimary Error during Restore
-
-    Cause: mongorestore was executed against 127.0.0.1 on a Secondary node (mongo1).
-
-    Fix: Export MONGO_URI="mongodb://192.168.211.130:27017" to route restore write traffic directly to the Primary instance.
+   Cause: mongorestore was executed against 127.0.0.1 on a Secondary node (mongo1).
+   Fix: Export MONGO_URI="mongodb://192.168.211.130:27017" to route restore write traffic directly to the Primary instance.
 
 2. Systemd Backup Missed Schedule
-
-    Cause: Host server was powered off at 02:00 AM.
-
-    Fix: Timer uses Persistent=true. Systemd automatically triggers missed executions on startup.
+   Cause: Host server was powered off at 10:00 AM
+   Fix: Timer uses Persistent=true. Systemd automatically triggers missed executions on startup.
 
 3. S3 403 Forbidden / AccessDenied
-
-    Cause: Missing IAM permissions or incorrect bucket name in vars/vault.yml.
-
-    Fix: Verify s3:PutObject and s3:ListBucket IAM policies and test bucket access using AWS CLI.
+   Cause: Missing IAM permissions or incorrect bucket name in vars/vault.yml.
+   Fix: Verify s3:PutObject and s3:ListBucket IAM policies and test bucket access using AWS CLI.
